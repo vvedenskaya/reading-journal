@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reading Journal</title>
+    <link rel="icon" href="./favicon.svg?v=2" type="image/svg+xml">
+    <link rel="shortcut icon" href="./favicon.svg?v=2" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./favicon.svg?v=2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .display-font {
+            font-family: 'Fraunces', Georgia, serif;
+        }
+
+        .category-chip {
+            display: inline-block;
+            margin-right: 0.75rem;
+            margin-bottom: 0.35rem;
+            font-size: 1.05rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            text-decoration: none;
+            transition: opacity 160ms ease;
+        }
+
+        .category-chip:hover {
+            opacity: 0.8;
+        }
+
+        .category-anchor {
+            scroll-margin-top: 1.5rem;
+        }
+
+        .category-chip-art-design { color: #f472b6; }
+        .category-chip-fiction { color: #60a5fa; }
+        .category-chip-history { color: #f59e0b; }
+        .category-chip-spiritual { color: #a3e635; }
+        .category-chip-default { color: #d4d4d8; }
+
+        .title-color-0 { color: #f472b6; }
+        .title-color-1 { color: #22d3ee; }
+        .title-color-2 { color: #a3e635; }
+        .title-color-3 { color: #f59e0b; }
+        .title-color-4 { color: #c084fc; }
+        .title-color-5 { color: #fb7185; }
+        .title-color-6 { color: #2dd4bf; }
+        .title-color-7 { color: #60a5fa; }
+
+        #top-graph {
+            margin-bottom: 1.75rem;
+            position: relative;
+        }
+
+        .graph-frame {
+            border: 1px solid #3f3f46;
+            background: #18181b;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .graph-year-label {
+            font-size: 12px;
+            fill: #a1a1aa;
+        }
+
+        .graph-axis-label {
+            font-size: 11px;
+            fill: #a1a1aa;
+        }
+
+        .graph-grid-line {
+            stroke: #3f3f46;
+            stroke-width: 1;
+            opacity: 0.55;
+        }
+
+        #graph-tooltip {
+            position: absolute;
+            pointer-events: none;
+            z-index: 5;
+            min-width: 180px;
+            background: rgba(24, 24, 27, 0.96);
+            border: 1px solid #6366f1;
+            color: #f4f4f5;
+            padding: 8px 10px;
+            font-size: 13px;
+            line-height: 1.25;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 120ms ease, transform 120ms ease;
+            white-space: nowrap;
+        }
+
+        #graph-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .graph-tooltip-title {
+            font-family: 'Fraunces', Georgia, serif;
+            font-size: 18px;
+            margin-bottom: 2px;
+        }
+
+        .graph-tooltip-meta {
+            color: #a1a1aa;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 antialiased selection:bg-fuchsia-400/40">
+
+    <main class="max-w-5xl mx-auto px-6 py-10 md:py-14">
+        <header class="mb-8">
+            <h1 class="display-font text-4xl md:text-5xl font-semibold tracking-tight text-zinc-50">Reading Journal</h1>
+        </header>
+
+        <section id="top-graph" class="mb-10">
+            <svg id="reading-graph" class="graph-frame w-full h-auto" viewBox="0 0 1000 320" role="img" aria-label="Books by category over years"></svg>
+            <div id="graph-tooltip" aria-live="polite"></div>
+        </section>
+
+        <section class="mb-10 space-y-4">
+            <div id="year-nav" class="text-sm text-zinc-300 tracking-wide"></div>
+            <div id="category-nav" class="text-base md:text-lg"></div>
+        </section>
+
+        <div id="reading-log" class="space-y-14">
+            <p class="text-zinc-500 text-sm animate-pulse">Loading reading list...</p>
+        </div>
+    </main>
+
+    <script>
+        // Paste your Published Google Sheets CSV URL here
+        const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyZDroKX7pjuqyiKU1mha86nowaPiLUjU-qtbMOcOApdyGUSwE36oObwtHkekArMuVY3lWiJj5ZmeZ/pub?gid=0&single=true&output=csv";
+        const CURRENT_YEAR_LABEL = '2026';
+
+        async function fetchAndRenderLog() {
+            try {
+                const response = await fetch(SHEET_CSV_URL);
+                const csvText = await response.text();
+                
+                // Parse CSV text into a JSON array of objects
+                Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        renderBooks(results.data);
+                    }
+                });
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                document.getElementById('reading-log').innerHTML = `<p class="text-red-500 font-mono">Error loading archive.</p>`;
+            }
+        }
+
+        function getField(row, keys) {
+            for (const key of keys) {
+                if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                    return row[key];
+                }
+            }
+            return '';
+        }
+
+        function parseYear(rawDate) {
+            if (!rawDate) return '';
+            const dateText = String(rawDate).trim();
+            const fourDigitYear = dateText.match(/\b(19|20)\d{2}\b/);
+            if (fourDigitYear) return fourDigitYear[0];
+
+            const parsed = new Date(dateText);
+            if (!Number.isNaN(parsed.getTime())) return String(parsed.getFullYear());
+            return '';
+        }
+
+        function colorClassFromCategory(category) {
+            const paletteSize = 8;
+            let hash = 0;
+            for (let i = 0; i < category.length; i += 1) {
+                hash = (hash << 5) - hash + category.charCodeAt(i);
+                hash |= 0;
+            }
+            const index = Math.abs(hash) % paletteSize;
+            return `title-color-${index}`;
+        }
+
+        function colorForCategory(category) {
+            const normalized = String(category || '').trim().toLowerCase();
+            const known = {
+                'art & design': '#f472b6',
+                fiction: '#60a5fa',
+                history: '#f59e0b',
+                spiritual: '#a3e635',
+                environment: '#34d399',
+                technology: '#22d3ee',
+                'technology & media': '#22d3ee',
+                psychology: '#c084fc',
+                'psychology & behavior': '#c084fc',
+                'political economy': '#fde047'
+            };
+            if (known[normalized]) return known[normalized];
+
+            const palette = ['#fde047', '#fb7185', '#22d3ee', '#a5b4fc', '#34d399', '#f59e0b', '#60a5fa', '#e5e7eb'];
+            let hash = 0;
+            for (let i = 0; i < normalized.length; i += 1) {
+                hash = (hash << 5) - hash + normalized.charCodeAt(i);
+                hash |= 0;
+            }
+            return palette[Math.abs(hash) % palette.length];
+        }
+
+        function categoryChipClass(category) {
+            const normalized = String(category || '').trim().toLowerCase();
+            if (normalized === 'art & design') return 'category-chip-art-design';
+            if (normalized === 'fiction') return 'category-chip-fiction';
+            if (normalized === 'history') return 'category-chip-history';
+            if (normalized === 'spiritual') return 'category-chip-spiritual';
+            return 'category-chip-default';
+        }
+
+        function slugifyCategory(category) {
+            return String(category || '')
+                .trim()
+                .toLowerCase()
+                .replace(/&/g, 'and')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        }
+
+        function normalizeBook(row) {
+            const title = getField(row, ['Title', 'title']);
+            const author = getField(row, ['Author', 'author']);
+            const finishedDate = getField(row, ['Date Finished', 'Date_Finished', 'date_finished']);
+            const startedDate = getField(row, ['Date Started', 'Date_Started', 'date_started']);
+            const status = getField(row, ['Status', 'status']);
+            const category = getField(row, ['Category', 'category']) || 'Uncategorized';
+            const notes = getField(row, ['Notes', 'notes']);
+            const rating = getField(row, ['Rating', 'rating']);
+            const statusNormalized = String(status || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+            const categoryNormalized = String(category || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+            const isWishlist = statusNormalized === 'wishlist' || categoryNormalized === 'wishlist';
+            const year = parseYear(finishedDate) || (!isWishlist ? CURRENT_YEAR_LABEL : '');
+            const chartYear = parseYear(finishedDate) || parseYear(startedDate) || (!isWishlist ? CURRENT_YEAR_LABEL : '');
+
+            return {
+                title,
+                author,
+                finishedDate,
+                startedDate,
+                status,
+                category,
+                notes,
+                rating,
+                year,
+                chartYear,
+                isWishlist
+            };
+        }
+
+        function renderCategoryGroup(parent, category, books, anchorId = '') {
+            const categoryBlock = document.createElement('div');
+            categoryBlock.className = 'space-y-2 category-anchor';
+            if (anchorId) {
+                categoryBlock.id = anchorId;
+            }
+
+            const categoryHeading = document.createElement('h3');
+            categoryHeading.className = 'display-font text-xl md:text-2xl font-semibold';
+            categoryHeading.textContent = category;
+            categoryBlock.appendChild(categoryHeading);
+
+            const table = document.createElement('div');
+            table.className = 'border-t border-zinc-700';
+
+            books.forEach(book => {
+                const stars = book.rating ? '★'.repeat(parseInt(book.rating, 10)) : '';
+                const titleColorClass = colorClassFromCategory(book.category || '');
+                const row = document.createElement('div');
+                row.className = 'grid grid-cols-1 md:grid-cols-[260px_1fr] gap-x-6 gap-y-1 border-b border-zinc-800 py-3';
+                row.innerHTML = `
+                    <div class="text-sm md:text-base font-medium text-zinc-200">${book.author || 'Unknown author'}</div>
+                    <div>
+                        <p class="display-font text-lg md:text-xl leading-tight ${titleColorClass}">${book.title}</p>
+                        ${(book.finishedDate || book.status || stars || book.notes) ? `
+                            <p class="text-xs text-zinc-500 mt-1">
+                                ${book.finishedDate || book.status || ''}
+                                ${stars ? ` ${stars}` : ''}
+                                ${book.notes ? ` - ${book.notes}` : ''}
+                            </p>
+                        ` : ''}
+                    </div>
+                `;
+                table.appendChild(row);
+            });
+
+            categoryBlock.appendChild(table);
+            parent.appendChild(categoryBlock);
+        }
+
+        function smoothLinePath(points, includeMove = true) {
+            if (!points.length) return '';
+            if (points.length === 1) {
+                return `${includeMove ? `M ${points[0].x} ${points[0].y}` : ''}`;
+            }
+
+            let path = includeMove ? `M ${points[0].x} ${points[0].y}` : '';
+            for (let i = 1; i < points.length; i += 1) {
+                const prev = points[i - 1];
+                const curr = points[i];
+                const cx = (prev.x + curr.x) / 2;
+                path += ` C ${cx} ${prev.y}, ${cx} ${curr.y}, ${curr.x} ${curr.y}`;
+            }
+            return path;
+        }
+
+        function niceTickStep(maxValue) {
+            if (maxValue <= 0) return 1;
+            const rough = maxValue / 5;
+            const power = Math.pow(10, Math.floor(Math.log10(rough)));
+            const normalized = rough / power;
+            if (normalized <= 1) return power;
+            if (normalized <= 2) return 2 * power;
+            if (normalized <= 5) return 5 * power;
+            return 10 * power;
+        }
+
+        function renderTopGraph(normalizedBooks) {
+            const svg = document.getElementById('reading-graph');
+            const graphWrapper = document.getElementById('top-graph');
+            const tooltip = document.getElementById('graph-tooltip');
+            const width = 1000;
+            const height = 320;
+            const padding = { top: 20, right: 20, bottom: 44, left: 44 };
+            const usableWidth = width - padding.left - padding.right;
+            const usableHeight = height - padding.top - padding.bottom;
+            const chartBottomY = padding.top + usableHeight;
+
+            const chartBooks = normalizedBooks.filter(book => book.chartYear && !book.isWishlist);
+            tooltip.classList.remove('visible');
+            if (!chartBooks.length) {
+                graphWrapper.style.display = '';
+                svg.innerHTML = `
+                    <rect x="0" y="0" width="${width}" height="${height}" fill="#18181b"></rect>
+                    <text x="500" y="165" text-anchor="middle" fill="#a1a1aa" font-size="14">
+                        No non-wishlist items available for graph
+                    </text>
+                `;
+                return;
+            }
+
+            graphWrapper.style.display = '';
+            const numericYears = chartBooks.map(book => Number(book.chartYear)).filter(year => !Number.isNaN(year));
+            const minYear = Math.min(...numericYears);
+            const maxYear = Math.max(...numericYears);
+            const years = [];
+            for (let year = minYear; year <= maxYear; year += 1) {
+                years.push(String(year));
+            }
+
+            const categories = [...new Set(chartBooks.map(book => book.category))].sort((a, b) => a.localeCompare(b));
+            const series = {};
+            categories.forEach(category => {
+                series[category] = years.map(() => 0);
+            });
+
+            chartBooks.forEach(book => {
+                const yearIndex = years.indexOf(book.chartYear);
+                if (yearIndex === -1) return;
+                series[book.category][yearIndex] += 1;
+            });
+
+            const totalsPerYear = years.map((_, idx) => categories.reduce((sum, category) => sum + series[category][idx], 0));
+            const maxTotal = Math.max(...totalsPerYear, 1);
+            const yScale = usableHeight / maxTotal;
+
+            let graphYears = years.slice();
+            let graphSeries = series;
+            let xPositions = years.map((_, idx) => {
+                if (years.length === 1) return padding.left + usableWidth / 2;
+                const xStep = usableWidth / (years.length - 1);
+                return padding.left + idx * xStep;
+            });
+
+            if (years.length === 1) {
+                graphYears = [years[0], years[0]];
+                graphSeries = {};
+                categories.forEach(category => {
+                    const value = series[category][0] || 0;
+                    graphSeries[category] = [value, value];
+                });
+                xPositions = [padding.left + usableWidth * 0.02, padding.left + usableWidth * 0.98];
+            }
+
+            const stackedLayers = {};
+            const cumulative = graphYears.map(() => 0);
+            categories.forEach(category => {
+                stackedLayers[category] = { top: [], bottom: [] };
+            });
+
+            graphYears.forEach((year, idx) => {
+                categories.forEach(category => {
+                    const value = graphSeries[category][idx];
+                    const y1 = chartBottomY - cumulative[idx] * yScale;
+                    const y0 = y1 - value * yScale;
+                    const x = xPositions[idx];
+
+                    stackedLayers[category].top.push({ x, y: y0 });
+                    stackedLayers[category].bottom.push({ x, y: y1 });
+                    cumulative[idx] += value;
+                });
+            });
+
+            const paths = categories.map(category => {
+                const topPoints = stackedLayers[category].top;
+                const bottomPoints = stackedLayers[category].bottom.slice().reverse();
+                const topPath = smoothLinePath(topPoints, true);
+                const firstBottom = bottomPoints[0];
+                const bottomPath = smoothLinePath(bottomPoints, false);
+                const d = `${topPath} L ${firstBottom.x} ${firstBottom.y}${bottomPath} Z`;
+                return `<path data-category="${category}" d="${d}" fill="${colorForCategory(category)}" opacity="0.9"></path>`;
+            }).join('');
+
+            const tickStep = niceTickStep(maxTotal);
+            const yTicks = [];
+            for (let value = 0; value <= maxTotal; value += tickStep) {
+                yTicks.push(value);
+            }
+            if (yTicks[yTicks.length - 1] !== maxTotal) yTicks.push(maxTotal);
+
+            const yAxisGrid = yTicks.map(value => {
+                const y = chartBottomY - value * yScale;
+                return `<line class="graph-grid-line" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
+                    <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" class="graph-axis-label">${value}</text>`;
+            }).join('');
+
+            const xAxisLabels = years.map((year, idx) => {
+                const x = years.length === 1 ? padding.left + usableWidth / 2 : padding.left + (usableWidth / (years.length - 1)) * idx;
+                return `<text x="${x}" y="${height - 12}" text-anchor="middle" class="graph-year-label">${year}</text>`;
+            }).join('');
+
+            svg.innerHTML = `
+                <rect x="0" y="0" width="${width}" height="${height}" fill="#18181b"></rect>
+                ${yAxisGrid}
+                <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartBottomY}" stroke="#71717a" stroke-width="1.2"></line>
+                <line x1="${padding.left}" y1="${chartBottomY}" x2="${width - padding.right}" y2="${chartBottomY}" stroke="#71717a" stroke-width="1.2"></line>
+                ${paths}
+                ${xAxisLabels}
+                <line id="graph-hover-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartBottomY}" stroke="#a5b4fc" stroke-width="1.2" opacity="0"></line>
+            `;
+
+            const allPaths = [...svg.querySelectorAll('path[data-category]')];
+            const hoverLine = document.getElementById('graph-hover-line');
+
+            function getMouseSvgPosition(event) {
+                const rect = svg.getBoundingClientRect();
+                return {
+                    x: ((event.clientX - rect.left) / rect.width) * width,
+                    y: ((event.clientY - rect.top) / rect.height) * height,
+                    rect
+                };
+            }
+
+            function yearIndexFromX(x) {
+                if (years.length === 1) return 0;
+                const step = usableWidth / (years.length - 1);
+                const raw = Math.round((x - padding.left) / step);
+                return Math.max(0, Math.min(years.length - 1, raw));
+            }
+
+            function pickCategoryAt(yearIdx, mouseY) {
+                let cumulativeValue = 0;
+                for (const category of categories) {
+                    const value = series[category][yearIdx];
+                    const yBottom = chartBottomY - cumulativeValue * yScale;
+                    const yTop = yBottom - value * yScale;
+                    cumulativeValue += value;
+                    if (mouseY >= yTop && mouseY <= yBottom && value > 0) {
+                        return { category, value };
+                    }
+                }
+
+                let fallbackCategory = categories[0];
+                let fallbackValue = series[fallbackCategory][yearIdx];
+                for (const category of categories) {
+                    if (series[category][yearIdx] > fallbackValue) {
+                        fallbackCategory = category;
+                        fallbackValue = series[category][yearIdx];
+                    }
+                }
+                return { category: fallbackCategory, value: fallbackValue };
+            }
+
+            svg.onmousemove = (event) => {
+                const { x, y, rect } = getMouseSvgPosition(event);
+                const insidePlot = x >= padding.left && x <= (width - padding.right) && y >= padding.top && y <= chartBottomY;
+                if (!insidePlot) {
+                    tooltip.classList.remove('visible');
+                    hoverLine.setAttribute('opacity', '0');
+                    allPaths.forEach(path => path.setAttribute('opacity', '0.9'));
+                    return;
+                }
+
+                const yearIdx = yearIndexFromX(x);
+                const year = years[yearIdx];
+                const total = totalsPerYear[yearIdx];
+                const selection = pickCategoryAt(yearIdx, y);
+                const { category, value } = selection;
+                const percent = total ? Math.round((value / total) * 100) : 0;
+
+                const guideX = years.length === 1 ? padding.left + usableWidth / 2 : padding.left + (usableWidth / (years.length - 1)) * yearIdx;
+                hoverLine.setAttribute('x1', String(guideX));
+                hoverLine.setAttribute('x2', String(guideX));
+                hoverLine.setAttribute('opacity', '0.9');
+
+                allPaths.forEach(path => {
+                    const isActive = path.getAttribute('data-category') === category;
+                    path.setAttribute('opacity', isActive ? '1' : '0.35');
+                });
+
+                tooltip.innerHTML = `
+                    <div class="graph-tooltip-title">${category}</div>
+                    <div class="graph-tooltip-meta">${year} - ${value} book${value === 1 ? '' : 's'} (${percent}%)</div>
+                    <div class="graph-tooltip-meta">Total that year: ${total}</div>
+                `;
+                tooltip.classList.add('visible');
+
+                const tooltipWidth = 210;
+                const tooltipHeight = 72;
+                const localX = event.clientX - rect.left;
+                const localY = event.clientY - rect.top;
+                const left = Math.min(Math.max(localX + 14, 8), rect.width - tooltipWidth - 8);
+                const top = Math.min(Math.max(localY - tooltipHeight - 12, 8), rect.height - tooltipHeight - 8);
+                tooltip.style.left = `${left}px`;
+                tooltip.style.top = `${top}px`;
+            };
+
+            svg.onmouseleave = () => {
+                tooltip.classList.remove('visible');
+                hoverLine.setAttribute('opacity', '0');
+                allPaths.forEach(path => path.setAttribute('opacity', '0.9'));
+            };
+        }
+
+        function renderBooks(books) {
+            const container = document.getElementById('reading-log');
+            const yearNav = document.getElementById('year-nav');
+            const categoryNav = document.getElementById('category-nav');
+            container.innerHTML = ''; // Clear loading text
+
+            const normalizedBooks = books
+                .map(normalizeBook)
+                .filter(book => book.title);
+
+            renderTopGraph(normalizedBooks);
+
+            if (!normalizedBooks.length) {
+                container.innerHTML = `<p class="text-rose-400 text-sm">No items found. Check sheet headers and publishing settings.</p>`;
+                yearNav.textContent = '';
+                categoryNav.textContent = '';
+                return;
+            }
+
+            const finishedBooks = normalizedBooks.filter(book => book.year && !book.isWishlist);
+            const inProgressBooks = normalizedBooks.filter(book => !book.year && !book.isWishlist);
+            const wishlistBooks = normalizedBooks.filter(book => book.isWishlist);
+
+            const years = [...new Set(finishedBooks.map(book => book.year))].sort((a, b) => Number(b) - Number(a));
+            const categories = [...new Set(normalizedBooks.filter(book => !book.isWishlist).map(book => book.category))].sort((a, b) => a.localeCompare(b));
+            const wishlistCategories = [...new Set(wishlistBooks.map(book => book.category))].sort((a, b) => a.localeCompare(b));
+            const navCategories = [...new Set([...categories, ...wishlistCategories])].sort((a, b) => a.localeCompare(b));
+            const categoryAnchorMap = {};
+            const usedAnchors = new Set();
+
+            navCategories.forEach(category => {
+                const base = slugifyCategory(category) || 'category';
+                let candidate = `category-${base}`;
+                let suffix = 2;
+                while (usedAnchors.has(candidate)) {
+                    candidate = `category-${base}-${suffix}`;
+                    suffix += 1;
+                }
+                usedAnchors.add(candidate);
+                categoryAnchorMap[category] = candidate;
+            });
+
+            yearNav.innerHTML = years.join(' ');
+            categoryNav.innerHTML = navCategories
+                .map(category => `<a class="category-chip ${categoryChipClass(category)}" href="#${categoryAnchorMap[category]}">${category}</a>`)
+                .join('');
+
+            const anchoredCategories = new Set();
+
+            years.forEach(year => {
+                const section = document.createElement('section');
+                section.className = 'space-y-6';
+
+                const heading = document.createElement('h2');
+                heading.className = 'display-font text-3xl md:text-4xl font-medium tracking-tight text-zinc-100';
+                heading.textContent = year;
+                section.appendChild(heading);
+
+                categories.forEach(category => {
+                    const matches = finishedBooks.filter(book => book.year === year && book.category === category);
+                    if (!matches.length) return;
+                    const anchorId = anchoredCategories.has(category) ? '' : categoryAnchorMap[category];
+                    anchoredCategories.add(category);
+                    renderCategoryGroup(section, category, matches, anchorId);
+                });
+
+                container.appendChild(section);
+            });
+
+            if (inProgressBooks.length) {
+                const progressSection = document.createElement('section');
+                progressSection.className = 'space-y-6';
+
+                const progressHeading = document.createElement('h2');
+                progressHeading.className = 'display-font text-3xl md:text-4xl font-medium tracking-tight text-zinc-100';
+                progressHeading.textContent = 'In Progress';
+                progressSection.appendChild(progressHeading);
+
+                categories.forEach(category => {
+                    const matches = inProgressBooks.filter(book => book.category === category);
+                    if (!matches.length) return;
+                    const anchorId = anchoredCategories.has(category) ? '' : categoryAnchorMap[category];
+                    anchoredCategories.add(category);
+                    renderCategoryGroup(progressSection, category, matches, anchorId);
+                });
+
+                container.appendChild(progressSection);
+            }
+
+            if (wishlistBooks.length) {
+                const wishlistSection = document.createElement('section');
+                wishlistSection.className = 'space-y-6';
+
+                wishlistCategories.forEach(category => {
+                    const matches = wishlistBooks.filter(book => book.category === category);
+                    if (!matches.length) return;
+                    const anchorId = anchoredCategories.has(category) ? '' : categoryAnchorMap[category];
+                    anchoredCategories.add(category);
+                    renderCategoryGroup(wishlistSection, category, matches, anchorId);
+                });
+
+                container.appendChild(wishlistSection);
+            }
+        }
+
+        // Initialize on page load
+        fetchAndRenderLog();
+    </script>
+</body>
+</html>
