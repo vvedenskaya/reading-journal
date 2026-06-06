@@ -187,6 +187,22 @@
             return '';
         }
 
+        function normalizeExternalUrl(rawUrl) {
+            if (!rawUrl) return '';
+            let value = String(rawUrl).trim();
+            if (!value) return '';
+            if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(value) && /^www\./i.test(value)) {
+                value = `https://${value}`;
+            }
+            try {
+                const parsed = new URL(value);
+                if (!/^https?:$/i.test(parsed.protocol)) return '';
+                return parsed.toString();
+            } catch (error) {
+                return '';
+            }
+        }
+
         function colorClassFromCategory(category) {
             const paletteSize = 8;
             let hash = 0;
@@ -241,6 +257,15 @@
                 .replace(/^-+|-+$/g, '');
         }
 
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function normalizeBook(row) {
             const title = getField(row, ['Title', 'title']);
             const author = getField(row, ['Author', 'author']);
@@ -250,6 +275,7 @@
             const category = getField(row, ['Category', 'category']) || 'Uncategorized';
             const notes = getField(row, ['Notes', 'notes']);
             const rating = getField(row, ['Rating', 'rating']);
+            const link = normalizeExternalUrl(getField(row, ['Links', 'links', 'Link', 'link', 'URL', 'Url', 'url']));
             const statusNormalized = String(status || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
             const categoryNormalized = String(category || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
             const isWishlist = statusNormalized === 'wishlist' || categoryNormalized === 'wishlist';
@@ -265,6 +291,7 @@
                 category,
                 notes,
                 rating,
+                link,
                 year,
                 chartYear,
                 isWishlist
@@ -289,12 +316,15 @@
             books.forEach(book => {
                 const stars = book.rating ? '★'.repeat(parseInt(book.rating, 10)) : '';
                 const titleColorClass = colorClassFromCategory(book.category || '');
+                const titleHtml = book.link
+                    ? `<a href="${book.link}" class="underline-offset-4 hover:underline focus-visible:underline">${escapeHtml(book.title)}</a>`
+                    : escapeHtml(book.title);
                 const row = document.createElement('div');
                 row.className = 'grid grid-cols-1 md:grid-cols-[260px_1fr] gap-x-6 gap-y-1 border-b border-zinc-800 py-3';
                 row.innerHTML = `
                     <div class="text-sm md:text-base font-medium text-zinc-200">${book.author || 'Unknown author'}</div>
                     <div>
-                        <p class="display-font text-lg md:text-xl leading-tight ${titleColorClass}">${book.title}</p>
+                        <p class="display-font text-lg md:text-xl leading-tight ${titleColorClass}">${titleHtml}</p>
                         ${(book.finishedDate || book.status || stars || book.notes) ? `
                             <p class="text-xs text-zinc-500 mt-1">
                                 ${book.finishedDate || book.status || ''}
